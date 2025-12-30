@@ -91,7 +91,7 @@ Hypersim 每个场景可能使用不同的相机参数（含可能的倾斜/平�
 ## 四、metric depth 的读取与单位转换
 
 - 路径：`images/scene_cam_XX_geometry_hdf5/frame.IIII.depth_meters.hdf5`
-- 含义：3D物点到相机光心的欧氏距离（单位米），不是相机空间的平面深度 z。
+- 含义（metric depth）：像素对应 3D 点到相机光心的欧氏距离（单位米，沿视线的欧氏距离）。它不同于相机空间的平面深度 z_cam（即沿相机 z 轴的投影分量）。
 - 与外参/位置等（资产坐标/单位）联合计算时，需单位统一：
   - `d_asset = depth_meters / meters_per_asset_unit`
 
@@ -101,6 +101,12 @@ Hypersim 每个场景可能使用不同的相机参数（含可能的倾斜/平�
 - Hypersim 相机 z 轴沿视线远离相机，因此平面深度为：
   - `z_cam = d_asset * v_cam[2]`
 - 若需传统“前向为 -z”的习惯，可取 `z_planar = -z_cam`。
+
+进一步的关系式：
+- `d_meter = ||X_cam||_2`（`X_cam` 为相机坐标下 3D 点）
+- `d_asset = d_meter / meters_per_asset_unit`
+- 给定像素单位方向 `v_cam = normalize(M_cam_from_uv · [x_ndc, y_ndc, 1])`，则 `z_cam = d_asset * v_cam_z`
+- 若需直接回投相机坐标 3D 点：`X_cam = d_asset * v_cam`
 
 更严格的推导与代码片段可参考 README 指向的 issue（Simon Niklaus 的示例）。
 
@@ -112,17 +118,27 @@ Hypersim 每个场景可能使用不同的相机参数（含可能的倾斜/平�
 
 - 获取某帧外参（R_cw、C_w、E）：
 ```
-python scripts/hypersim_camera_depth.py get-extrinsics --scene ai_001_001 --cam cam_00 --frame 0000
+# 单帧
+python scripts/hypersim_camera_depth.py get-extrinsics --scene_path evermotion_dataset/scenes/ai_001_001 --cam cam_00 --frame 0000
+
+# 批量（全部帧 → JSONL 文件）
+python scripts/hypersim_camera_depth.py get-extrinsics --scene_path evermotion_dataset/scenes/ai_001_001 --cam cam_00 --all --format jsonl --out evermotion_dataset/scenes/ai_001_001/_detail/cam_00/extrinsics.jsonl
+
+# 批量（区间）
+python scripts/hypersim_camera_depth.py get-extrinsics --scene_path evermotion_dataset/scenes/ai_001_001 --cam cam_00 --range 0000 0123 --format csv --out evermotion_dataset/scenes/ai_001_001/_detail/cam_00/extrinsics_0000_0123.csv
+
+# 批量（指定列表）
+python scripts/hypersim_camera_depth.py get-extrinsics --scene_path evermotion_dataset/scenes/ai_001_001 --cam cam_00 --list 0000,0005,0010
 ```
 
 - 获取场景内参/投影（M_proj、M_cam_from_uv、分辨率）：
 ```
-python scripts/hypersim_camera_depth.py get-intrinsics --scene ai_001_001
+python scripts/hypersim_camera_depth.py get-intrinsics --scene_name ai_001_001
 ```
 
 - 将欧氏深度（米）转换为平面深度 z_cam（资产单位），并保存为 NPZ：
 ```
-python scripts/hypersim_camera_depth.py convert-depth --scene ai_001_001 --cam cam_00 --frame 0000 --out evermotion_dataset/scenes/ai_001_001/images/scene_cam_00_geometry_hdf5/frame.0000.z_cam_asset.npz
+python scripts/hypersim_camera_depth.py convert-depth --scene_name ai_001_001 --scene_path evermotion_dataset/scenes/ai_001_001 --cam cam_00 --frame 0000 --out evermotion_dataset/scenes/ai_001_001/images/scene_cam_00_geometry_hdf5/frame.0000.z_cam_asset.npz
 ```
 
 - 作为库函数使用（示例）：
