@@ -22,6 +22,9 @@ Usage examples:
   # Extrinsics (batch: all frames to JSONL)
   python scripts/hypersim_camera_depth.py get-extrinsics --scene_path evermotion_dataset/scenes/ai_001_001 --cam cam_00 --all --format jsonl --out evermotion_dataset/scenes/ai_001_001/_detail/cam_00/extrinsics.jsonl
 
+  # Extrinsics (batch, metric units: output file will be suffixed with _metric)
+  python scripts/hypersim_camera_depth.py get-extrinsics --scene_path evermotion_dataset/scenes/ai_001_001 --cam cam_00 --all --format jsonl --out evermotion_dataset/scenes/ai_001_001/_detail/cam_00/extrinsics.jsonl --metric
+
   # Intrinsics (per scene, by name)
   python scripts/hypersim_camera_depth.py get-intrinsics --scene_name ai_001_001
 
@@ -320,6 +323,10 @@ def cmd_get_extrinsics(args):
     sdir = args.scene_path
     R_wc_all, C_w_all, frame_indices = load_extrinsics_arrays(sdir, args.cam)
     all_frames = enumerate_frames(frame_indices, R_wc_all.shape[0])
+    # Optional metric scaling: get meters_per_asset_unit if requested
+    m_per_asset = None
+    if getattr(args, "metric", False):
+        m_per_asset = load_scene_scale(sdir)
 
     # Selection
     selected = []
@@ -357,19 +364,30 @@ def cmd_get_extrinsics(args):
     records = []
     for i, IIII in selected:
         R_cw, C_w, E = compute_extrinsics(R_wc_all, C_w_all, i)
+        if m_per_asset is not None:
+            # Metric units: scale translation by meters_per_asset_unit
+            C_out = C_w * m_per_asset
+            E_out = np.hstack([R_cw, (-R_cw @ C_out.reshape(3, 1))])
+        else:
+            C_out = C_w
+            E_out = E
         rec = {
             "scene_path": sdir,
             "cam": args.cam,
             "frame": IIII,
             "R_cw": R_cw.tolist(),
-            "C_w": C_w.tolist(),
-            "E_3x4": E.tolist(),
+            "C_w": C_out.tolist(),
+            "E_3x4": E_out.tolist(),
         }
         records.append(rec)
 
     # Output formatting
     fmt = getattr(args, "format", "jsonl").lower()
     out_path = getattr(args, "out", None)
+    # If metric requested and writing to file, append _metric suffix before extension
+    if out_path and getattr(args, "metric", False):
+        root, ext = os.path.splitext(out_path)
+        out_path = root + "_metric" + (ext if ext else "")
 
     if fmt == "jsonl":
         text = _format_extrinsics_records_jsonl(records)
@@ -493,6 +511,11 @@ def build_parser():
         help="Output format (default: jsonl)",
     )
     p_ext.add_argument("--out", required=False, help="Output path (default: stdout)")
+    p_ext.add_argument(
+        "--metric",
+        action="store_true",
+        help="Use metric units (meters): scale translation by meters_per_asset_unit and append _metric to output filename",
+    )
     p_ext.set_defaults(func=cmd_get_extrinsics)
 
     # Intrinsics: scene_name (string key into CSV)
