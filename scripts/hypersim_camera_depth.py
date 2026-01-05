@@ -54,11 +54,46 @@ def scene_dir(scene_name: str) -> str:
 
 
 def load_scene_scale(scene_dir_path: str) -> float:
-    """Return meters_per_asset_unit from _detail/metadata_scene.csv"""
+    """Return meters_per_asset_unit from _detail/metadata_scene.csv, supporting both column and key-value formats."""
     meta_scene_csv = os.path.join(scene_dir_path, "_detail", "metadata_scene.csv")
     df = pd.read_csv(meta_scene_csv)
-    m_per_asset = float(df["meters_per_asset_unit"].values[0])
-    return m_per_asset
+
+    # Case 1: direct column exists
+    if "meters_per_asset_unit" in df.columns:
+        val = df["meters_per_asset_unit"].iloc[0]
+        try:
+            return float(val)
+        except Exception:
+            # Fall through to key-value parsing if needed
+            pass
+
+    # Case 2: key-value format (parameter_name, parameter_value)
+    lowered = [c.lower() for c in df.columns]
+    if ("parameter_name" in lowered) and ("parameter_value" in lowered):
+        name_col = df.columns[lowered.index("parameter_name")]
+        value_col = df.columns[lowered.index("parameter_value")]
+
+        # Normalize: strip whitespace
+        df[name_col] = df[name_col].astype(str).str.strip()
+        df[value_col] = df[value_col].astype(str).str.strip()
+
+        rows = df[df[name_col].str.lower() == "meters_per_asset_unit"]
+        if rows.empty:
+            raise RuntimeError(
+                f"'meters_per_asset_unit' not found in {meta_scene_csv} (key-value format)"
+            )
+        val_str = rows[value_col].iloc[0]
+        try:
+            return float(val_str)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to parse meters_per_asset_unit='{val_str}' as float"
+            ) from e
+
+    # Unexpected format
+    raise RuntimeError(
+        f"Unrecognized metadata_scene.csv format: columns={list(df.columns)}"
+    )
 
 
 def load_extrinsics_arrays(scene_dir_path: str, cam_name: str):
